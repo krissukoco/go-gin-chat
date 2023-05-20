@@ -2,10 +2,15 @@ package controllers
 
 import (
 	"encoding/json"
-	"log"
+	"errors"
 
 	"github.com/gorilla/websocket"
-	"github.com/krissukoco/go-gin-chat/security"
+	"github.com/krissukoco/go-gin-chat/models"
+)
+
+var (
+	ErrAbortConnection = errors.New("connection is aborted either by server or client")
+	ErrInvalidSchema   = errors.New("invalid message schema")
 )
 
 type ChatClient struct {
@@ -14,7 +19,21 @@ type ChatClient struct {
 	Authenticated bool
 	Conn          *websocket.Conn
 	Incoming      chan *WsBaseMessage
+	ChatData      chan *models.Chat
 	Exited        chan bool
+}
+
+type WsBaseMessage struct {
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}
+type WsAuthMsg struct {
+	Token string `json:"token"`
+}
+type WsChatMsg struct {
+	Type   string `json:"type"`
+	ChatId string `json:"chat_id"`
+	Text   string `json:"text"`
 }
 
 func NewChatClient(userId string, connection *websocket.Conn) *ChatClient {
@@ -24,67 +43,27 @@ func NewChatClient(userId string, connection *websocket.Conn) *ChatClient {
 		Id:       newWsId(),
 		Incoming: make(chan *WsBaseMessage),
 		Exited:   make(chan bool),
+		ChatData: make(chan *models.Chat),
 	}
 }
 
-func (cl *ChatClient) Websocket(jwtSecret string) {
-	for {
-		mt, msg, err := cl.Conn.ReadMessage()
-		if err != nil {
-			log.Println("Error ReadMessage: ", err)
-			break
-		}
-		if string(msg) == "ping" {
-			cl.Conn.WriteMessage(mt, []byte("pong"))
-			continue
-		}
-		var m WsBaseMessage
-		err = json.Unmarshal(msg, &m)
-		if err != nil {
-			log.Println("Error Unmarshal: ", err)
-			break
-		}
-		// Process message
-		err = cl.processMessage(&m)
-		if err != nil {
-			log.Println("Error processMessage: ", err)
-			break
-		}
-		cl.Incoming <- &WsBaseMessage{
-			Type: "message",
-			Data: string(msg),
-		}
+func (cl *ChatClient) convertData(data any, target any) error {
+	// Marshal and Unmarshall
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
 	}
+	err = json.Unmarshal(b, target)
+	return err
 }
 
-func (cl *ChatClient) processMessage(m *WsBaseMessage) error {
-	log.Println("Processing message: ", m)
-	switch m.Type {
-	// User authentication
-	case "auth":
-		if cl.Authenticated {
-			log.Println("Client is already authenticated")
-			return nil
-		}
-		var authMsg WsAuthMsg
-		b, err := json.Marshal(m.Data)
-		if err != nil {
-			log.Println("Error Marshal: ", err)
-			break
-		}
-		err = json.Unmarshal(b, &authMsg)
-		if err != nil {
-			log.Println("Error Unmarshal: ", err)
-			break
-		}
-		userId, err := security.GetUserIdFromJwt(authMsg.Token)
-		if err != nil {
-			log.Println("Error GetUserIdFromJwt: ", err)
-			break
-		}
-		cl.UserId = userId
-		cl.Authenticated = true
-		log.Println("Client is authenticated")
+func (cl *ChatClient) sendJson(m any) error {
+	if cl.Conn == nil {
+		return nil
 	}
-	return nil
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return cl.Conn.WriteMessage(1, b)
 }
