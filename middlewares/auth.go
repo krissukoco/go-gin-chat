@@ -41,7 +41,7 @@ func (a *AuthMiddleware) AuthorizationHeader(c *gin.Context) {
 	}
 	token := split[1]
 	// Get username from token
-	username, err := security.GetUsernameFromJwt(token, a.JwtSecret)
+	userId, err := security.GetUserIdFromJwt(token, a.JwtSecret)
 	if err != nil {
 		c.JSON(401, &schema.ErrorResponse{
 			Code:    schema.ErrTokenInvalid,
@@ -51,7 +51,7 @@ func (a *AuthMiddleware) AuthorizationHeader(c *gin.Context) {
 		return
 	}
 
-	c.Set("username", username)
+	c.Set("userId", userId)
 
 	c.Next()
 }

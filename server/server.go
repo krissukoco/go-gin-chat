@@ -8,17 +8,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/krissukoco/go-gin-chat/controllers"
 	"github.com/krissukoco/go-gin-chat/database"
-	"github.com/krissukoco/go-gin-chat/middlewares"
 	"github.com/krissukoco/go-gin-chat/models"
 	"go.mongodb.org/mongo-driver/mongo"
 	"gorm.io/gorm"
 )
 
 type Server struct {
-	Engine *gin.Engine
-	Pg     *gorm.DB
-	Mongo  *mongo.Database
-	Port   int
+	Engine    *gin.Engine
+	Pg        *gorm.DB
+	Mongo     *mongo.Database
+	WsManager *WebsocketManager
+	Port      int
+	NewClient chan *controllers.ChatClient
 }
 
 func NewDefaultServer() (*Server, error) {
@@ -41,43 +42,24 @@ func NewDefaultServer() (*Server, error) {
 		}
 	}
 
-	jwtSecret, exists := os.LookupEnv("JWT_SECRET")
-	if !exists {
-		return nil, fmt.Errorf("JWT_SECRET is not set")
-	}
-
-	// Routing and initiating controllers and middlewares
-	router := NewDefaultRouter()
-	authCtl := controllers.Auth{
-		Pg:        pg,
-		JwtSecret: jwtSecret,
-	}
-	userCtl := controllers.User{
-		Pg: pg,
-	}
-	chatCtl := controllers.Chat{
-		Mongo:   mongoDb,
-		UserCtl: &userCtl,
-	}
-	authMiddleware := middlewares.AuthMiddleware{
-		JwtSecret: jwtSecret,
-	}
-	router.POST("/auth/login", authCtl.Login)
-	router.POST("/auth/register", authCtl.Register)
-	router.GET("/auth/account", authMiddleware.AuthorizationHeader, authCtl.GetAccount)
-	router.GET("/users", userCtl.GetAll)
-	router.GET("/users/:id", userCtl.GetById)
-	router.GET("/chats", authMiddleware.AuthorizationHeader, chatCtl.GetAll)
-	// router.POST("/chats", authMiddleware.AuthorizationHeader, chatCtl.Create)
-
+	// Router
 	srv := &Server{
-		Engine: router,
-		Pg:     pg,
-		Mongo:  mongoDb,
-		Port:   defaultPort,
+		Pg:        pg,
+		Mongo:     mongoDb,
+		Port:      defaultPort,
+		WsManager: NewWebsocketManager(),
+		NewClient: make(chan *controllers.ChatClient),
 	}
-	// Database auto migrate
+	err = srv.setupRouter()
+	if err != nil {
+		return nil, err
+	}
+
 	srv.databaseAutoMigrate()
+
+	// Run WS manager
+	stop := make(chan bool)
+	go srv.WsManager.Run(stop, srv.NewClient)
 	return srv, nil
 }
 

@@ -16,9 +16,14 @@ const (
 
 var (
 	ErrTokenInvalid = errors.New("token is invalid")
+	JwtSecret       = ""
 )
 
-func JwtFromUsername(username string, secret string, durationHour ...int) (string, error) {
+func SetJwtSecret(secret string) {
+	JwtSecret = secret
+}
+
+func JwtFromUserId(userId string, secret string, durationHour ...int) (string, error) {
 	durHour := 24 * 7
 	if len(durationHour) > 0 {
 		durHour = durationHour[0]
@@ -26,7 +31,7 @@ func JwtFromUsername(username string, secret string, durationHour ...int) (strin
 	now := time.Now().Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": JwtIssuer,
-		"sub": username,
+		"sub": userId,
 		"aud": JwtAudience,
 		"exp": now + (60 * 60 * int64(durHour)),
 		"nbf": now,
@@ -40,9 +45,13 @@ func JwtFromUsername(username string, secret string, durationHour ...int) (strin
 	return tokenString, nil
 }
 
-func GetUsernameFromJwt(token, secret string) (string, error) {
+func GetUserIdFromJwt(token string, secret ...string) (string, error) {
+	jwtSecret := JwtSecret
+	if len(secret) > 0 {
+		jwtSecret = secret[0]
+	}
 	tkn, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
+		return []byte(jwtSecret), nil
 	})
 	if err != nil {
 		return "", err

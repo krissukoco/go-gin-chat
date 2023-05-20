@@ -93,7 +93,7 @@ func (a *Auth) Login(c *gin.Context) {
 		})
 		return
 	}
-	token, err := security.JwtFromUsername(u.Username, a.JwtSecret)
+	token, err := security.JwtFromUserId(u.Id, a.JwtSecret)
 	if err != nil {
 		c.JSON(500, &schema.ErrorResponse{
 			Code:    schema.ErrInternalServer,
@@ -158,8 +158,8 @@ func (a *Auth) Register(c *gin.Context) {
 }
 
 func (a *Auth) GetAccount(c *gin.Context) {
-	username := c.GetString("username")
-	if username == "" {
+	userId := c.GetString("username")
+	if userId == "" {
 		c.JSON(500, &schema.ErrorResponse{
 			Code:    schema.ErrInternalServer,
 			Message: "Internal Server Error",
@@ -168,7 +168,7 @@ func (a *Auth) GetAccount(c *gin.Context) {
 	}
 
 	var u models.User
-	err := u.FindByUsername(a.Pg, username)
+	err := u.FindById(a.Pg, userId)
 	if err != nil {
 		c.JSON(401, &schema.ErrorResponse{
 			Code:    schema.ErrTokenInvalid,
