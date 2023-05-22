@@ -47,12 +47,16 @@ func (srv *Server) setupRouter() error {
 		UserCtl:   &userCtl,
 		JwtSecret: jwtSecret,
 	}
+	groupCtl := controllers.Group{
+		Mongo: srv.Mongo,
+	}
 	router.POST("/auth/login", authCtl.Login)
 	router.POST("/auth/register", authCtl.Register)
 	router.GET("/auth/account", authMiddleware.AuthorizationHeader, authCtl.GetAccount)
 	router.GET("/users", userCtl.GetAll)
 	router.GET("/users/:id", userCtl.GetById)
 	router.GET("/chats", authMiddleware.AuthorizationHeader, chatCtl.GetAll)
+	router.POST("/groups", authMiddleware.AuthorizationHeader, groupCtl.CreateNew)
 	// Websockets
 	ws := router.Group("/ws", middlewares.WebsocketMiddleware)
 	ws.GET("/chats", func(c *gin.Context) {

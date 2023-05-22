@@ -7,8 +7,8 @@ import (
 )
 
 type WebsocketManager struct {
-	ChatClients []*controllers.ChatClient
-	// IncomingClient chan *controllers.ChatClient
+	ChatClients    []*controllers.ChatClient
+	IncomingClient chan *controllers.ChatClient
 }
 
 func NewWebsocketManager() *WebsocketManager {
@@ -39,12 +39,21 @@ func (m *WebsocketManager) UnregisterChatClient(client *controllers.ChatClient) 
 	}
 }
 
-func (m *WebsocketManager) Run(stop chan bool, newClient chan *controllers.ChatClient) {
+func (m *WebsocketManager) Broadcast(msg any, userId string) {
+	for _, client := range m.ChatClients {
+		if client.UserId == userId {
+			log.Println("broadcast message to client: ", client.Id)
+			client.Conn.WriteJSON(msg)
+		}
+	}
+}
+
+func (m *WebsocketManager) Run(stop chan bool) {
 	for {
 		select {
 		case <-stop:
 			return
-		case client := <-newClient:
+		case client := <-m.IncomingClient:
 			if client != nil {
 				m.RegisterChatClient(client)
 			}
@@ -54,8 +63,27 @@ func (m *WebsocketManager) Run(stop chan bool, newClient chan *controllers.ChatC
 				case <-client.Exited:
 					log.Println("client exited")
 					m.UnregisterChatClient(client)
-				case msg := <-client.Incoming:
-					log.Println("incoming message", msg)
+				case msg := <-client.Out:
+					log.Println("message from client: ", msg)
+					if msg.Type == "new_chat" {
+						newChat, ok := msg.Data.(*controllers.WsChatData)
+						if !ok {
+							log.Println("invalid message schema for 'new_chat'")
+							continue
+						}
+						if newChat.IsGroup && newChat.Group != nil {
+							// Send to each members of group
+							for _, member := range newChat.Group.MemberIds {
+								m.Broadcast(msg, member)
+							}
+						} else {
+							// Send to user
+							m.Broadcast(msg, newChat.Receiver.Id)
+						}
+
+					}
+				default:
+					continue
 				}
 			}
 		}

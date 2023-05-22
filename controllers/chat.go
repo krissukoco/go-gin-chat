@@ -12,6 +12,7 @@ import (
 	"github.com/krissukoco/go-gin-chat/models"
 	"github.com/krissukoco/go-gin-chat/schema"
 	"github.com/krissukoco/go-gin-chat/security"
+	"github.com/krissukoco/go-gin-chat/utils"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -24,6 +25,24 @@ type Chat struct {
 	Mongo     *mongo.Database
 	UserCtl   *User // bridge to user controller to get user data
 	JwtSecret string
+}
+
+type WsBaseMessage struct {
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}
+type WsAuthMsg struct {
+	Token string `json:"token"`
+}
+type WsChatMsg struct {
+	Type   string `json:"type"`
+	ChatId string `json:"chat_id"`
+	Text   string `json:"text"`
+}
+type WsChatData struct {
+	*models.Chat
+	Receiver *models.User  `json:"receiver"`
+	Group    *models.Group `json:"group"`
 }
 
 func (chat *Chat) GetAll(c *gin.Context) {
@@ -66,7 +85,7 @@ func (chat *Chat) ChatWebsocketHandler(c *gin.Context, newClient chan *ChatClien
 	newClient <- client
 	// Process client websocket
 	chat.clientWebsocket(client)
-	// Wait until ws process finished
+	// Wait until ws process finished then send exited
 	log.Println("Client exited")
 	client.Exited <- true
 }
@@ -98,10 +117,6 @@ func (chat *Chat) clientWebsocket(cl *ChatClient) {
 				}})
 			break
 		}
-		cl.Incoming <- &WsBaseMessage{
-			Type: "message",
-			Data: string(msg),
-		}
 	}
 }
 
@@ -117,7 +132,7 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 			})
 		}
 		var authMsg WsAuthMsg
-		err := cl.convertData(m.Data, &authMsg)
+		err := utils.ConvertStruct(m.Data, &authMsg)
 		if err != nil {
 			log.Println("Error convertData: ", err)
 			break
@@ -128,10 +143,19 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 			break
 		}
 		cl.UserId = userId
+		// Find user
+		user, err := chat.UserCtl.GetUserById(userId)
+		if err != nil {
+			log.Println("Error FindUserById: ", err)
+			break
+		}
 		cl.Authenticated = true
 		cl.sendJson(&WsBaseMessage{
 			Type: "success",
-			Data: map[string]string{"message": "authenticated"},
+			Data: map[string]interface{}{
+				"message": "authenticated",
+				"user":    user,
+			},
 		})
 		log.Println("Client is authenticated")
 	// Chat
@@ -140,7 +164,7 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 			return ErrAbortConnection
 		}
 		var chatData WsChatMsg
-		err := cl.convertData(m.Data, &chatData)
+		err := utils.ConvertStruct(m.Data, &chatData)
 		if err != nil {
 			return err
 		}
@@ -162,10 +186,22 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 				UpdatedAt: now,
 			}
 			log.Println("Chat data: ", chatModel)
-			err = chat.processClientChat(cl, &chatModel)
+			chatExtended, err := chat.processClientChat(cl, &chatModel)
 			if err != nil {
 				return err
 			}
+			// Send back to sender
+			chatMsg := &WsBaseMessage{
+				Type: "chat_sent",
+				Data: chatExtended,
+			}
+			if err = cl.sendJson(chatMsg); err != nil {
+				return err
+			}
+			// Send to receiver(s)
+			chatMsg.Type = "new_chat"
+			cl.Out <- chatMsg
+
 		default:
 			return ErrInvalidSchema
 		}
@@ -175,39 +211,44 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 	return nil
 }
 
-func (chat *Chat) processClientChat(client *ChatClient, chatData *models.Chat) error {
+func (chat *Chat) processClientChat(client *ChatClient, chatData *models.Chat) (*WsChatData, error) {
 	log.Println("Listening to chat data...")
 	if chatData.ChatId == "" {
-		return errors.New("chat id cannot be empty")
+		return nil, errors.New("chat id cannot be empty")
 	}
 	// User cannot send to themselves
 	if chatData.SenderId == chatData.ChatId {
-		return errors.New("cannot send to yourself")
+		return nil, errors.New("cannot send to yourself")
 	}
+	var data WsChatData
 	// Find group chat
 	var group models.Group
 	err := group.FindById(chat.Mongo, chatData.ChatId)
 	if err == nil {
 		// Group exists
 		chatData.IsGroup = true
+		data.Group = &group
 		err = chatData.Save(chat.Mongo)
 		if err != nil {
 			log.Println("ERROR saving group chat data to mongo: ", err)
-			return err
+			return nil, err
 		}
 	}
+
 	// Find by user id
-	_, err = chat.UserCtl.GetUserById(chatData.ChatId)
-	if err != nil {
+	user, err := chat.UserCtl.GetUserById(chatData.ChatId)
+	if err != nil && !chatData.IsGroup {
 		// No group nor user found
 		log.Println("ERROR finding user: ", err)
-		return ErrChatNotFound
+		return nil, ErrChatNotFound
 	}
+	data.Receiver = user
 	log.Println("New chat data: ", chatData)
 	err = chatData.Save(chat.Mongo)
 	if err != nil {
 		log.Println("ERROR saving chat data to mongo: ", err)
-		return err
+		return nil, err
 	}
-	return nil
+	data.Chat = chatData
+	return &data, nil
 }

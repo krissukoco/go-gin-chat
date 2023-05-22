@@ -18,22 +18,10 @@ type ChatClient struct {
 	Id            string
 	Authenticated bool
 	Conn          *websocket.Conn
-	Incoming      chan *WsBaseMessage
+	In            chan *WsBaseMessage
+	Out           chan *WsBaseMessage
 	ChatData      chan *models.Chat
 	Exited        chan bool
-}
-
-type WsBaseMessage struct {
-	Type string `json:"type"`
-	Data any    `json:"data"`
-}
-type WsAuthMsg struct {
-	Token string `json:"token"`
-}
-type WsChatMsg struct {
-	Type   string `json:"type"`
-	ChatId string `json:"chat_id"`
-	Text   string `json:"text"`
 }
 
 func NewChatClient(userId string, connection *websocket.Conn) *ChatClient {
@@ -41,20 +29,11 @@ func NewChatClient(userId string, connection *websocket.Conn) *ChatClient {
 		UserId:   userId,
 		Conn:     connection,
 		Id:       newWsId(),
-		Incoming: make(chan *WsBaseMessage),
+		In:       make(chan *WsBaseMessage),
+		Out:      make(chan *WsBaseMessage),
 		Exited:   make(chan bool),
 		ChatData: make(chan *models.Chat),
 	}
-}
-
-func (cl *ChatClient) convertData(data any, target any) error {
-	// Marshal and Unmarshall
-	b, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	err = json.Unmarshal(b, target)
-	return err
 }
 
 func (cl *ChatClient) sendJson(m any) error {

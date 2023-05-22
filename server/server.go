@@ -42,14 +42,17 @@ func NewDefaultServer() (*Server, error) {
 		}
 	}
 
+	wsManager := NewWebsocketManager()
+
 	// Router
 	srv := &Server{
 		Pg:        pg,
 		Mongo:     mongoDb,
 		Port:      defaultPort,
-		WsManager: NewWebsocketManager(),
+		WsManager: wsManager,
 		NewClient: make(chan *controllers.ChatClient),
 	}
+	srv.WsManager.IncomingClient = srv.NewClient
 	err = srv.setupRouter()
 	if err != nil {
 		return nil, err
@@ -59,7 +62,7 @@ func NewDefaultServer() (*Server, error) {
 
 	// Run WS manager
 	stop := make(chan bool)
-	go srv.WsManager.Run(stop, srv.NewClient)
+	go srv.WsManager.Run(stop)
 	return srv, nil
 }
 

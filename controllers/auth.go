@@ -158,7 +158,7 @@ func (a *Auth) Register(c *gin.Context) {
 }
 
 func (a *Auth) GetAccount(c *gin.Context) {
-	userId := c.GetString("username")
+	userId := c.GetString("userId")
 	if userId == "" {
 		c.JSON(500, &schema.ErrorResponse{
 			Code:    schema.ErrInternalServer,
