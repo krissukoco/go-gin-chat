@@ -16,6 +16,13 @@ const (
 	GroupCollection = "groups"
 )
 
+type ChatRoom struct {
+	ChatId string      `json:"chat_id" bson:"chat_id"`
+	User   interface{} `json:"user" bson:"user"`
+	Group  *Group      `json:"group" bson:"group"`
+	Chats  []*Chat     `json:"chats" bson:"chats"`
+}
+
 type Chat struct {
 	ObjectId primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
 	SenderId string             `bson:"sender_id" json:"sender_id"`
@@ -46,6 +53,51 @@ func (c *Chat) Save(db *mongo.Database) error {
 	}
 	_, err := db.Collection(ChatCollection).UpdateOne(context.Background(), bson.M{"_id": c.ObjectId}, &c)
 	return err
+}
+
+func GetUserChatRooms(db *mongo.Database, userId string) ([]*ChatRoom, error) {
+	ctx := context.Background()
+	rooms := map[string]*ChatRoom{}
+	chatRooms := []*ChatRoom{}
+	cursor, err := db.Collection(ChatCollection).Find(
+		ctx,
+		bson.M{"$or": []bson.M{
+			{"sender_id": userId},
+			{"chat_id": userId},
+		}},
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var chat Chat
+		if err := cursor.Decode(&chat); err != nil {
+			return nil, err
+		}
+		// Find chat room
+		room, ok := rooms[chat.ChatId]
+		if !ok {
+			// Create one
+			room = &ChatRoom{
+				ChatId: chat.ChatId,
+				Chats:  make([]*Chat, 0),
+			}
+			rooms[chat.ChatId] = room
+			if chat.IsGroup {
+				// Find group
+				group := &Group{}
+				if err = group.FindById(db, chat.ChatId); err != nil {
+					continue
+				}
+				room.Group = group
+			}
+			chatRooms = append(chatRooms, room)
+		}
+		room.Chats = append(room.Chats, &chat)
+	}
+
+	return chatRooms, nil
 }
 
 type PollOption struct {

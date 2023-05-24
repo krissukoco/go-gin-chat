@@ -62,6 +62,21 @@ func newWsId() string {
 	return "ws_" + uuid.NewString()
 }
 
+func (chat *Chat) GetAllChats(userId string) ([]*models.ChatRoom, error) {
+	// Get all chats
+	chats, err := models.GetUserChatRooms(chat.Mongo, userId)
+	for _, room := range chats {
+		// Get user data if room is user chat
+		if room.ChatId[:2] == "u_" {
+			room.User, err = chat.UserCtl.GetUserById(room.ChatId)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return chats, err
+}
+
 func (chat *Chat) ChatWebsocketHandler(c *gin.Context, newClient chan *ChatClient) {
 	wsIntf, exists := c.Get("ws")
 	if !exists {
@@ -205,6 +220,19 @@ func (chat *Chat) processMessage(cl *ChatClient, m *WsBaseMessage) error {
 		default:
 			return ErrInvalidSchema
 		}
+	case "get_chats":
+		if !cl.Authenticated {
+			return ErrAbortConnection
+		}
+		chats, err := chat.GetAllChats(cl.UserId)
+		if err != nil {
+			return err
+		}
+		cl.sendJson(&WsBaseMessage{
+			Type: "chats",
+			Data: chats,
+		})
+
 	default:
 		return ErrMessageTypeUnknown
 	}
