@@ -1,0 +1,55 @@
+h1, h2, h3, h4, h5, h6, p, div {
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 400;
+}
+
+a {
+    color: #7c609c;
+}
+
+input {
+    background-color: inherit;
+    outline: none;
+}
+
+._main {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    align-items: center;
+    height: 98vh;
+    margin: 0;
+    background-color: #120323;
+}
+.app {
+    width: 1080px;
+    height: 100%;
+    border: solid 1px red;
+    background-color: #120323;
+}
+
+.default-btn {
+    background-color: #7c609c;
+    color: white;
+    padding: 10px 5px;
+    border-radius: 25px;
+    font-size: 0.9rem;
+    border: none;
+}
+
+.default-input {
+    background-color: inherit;
+    color: white;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    padding: 10px 10px;
+    outline: none;
+  }
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    margin: 0;
+  }
